@@ -1,7 +1,7 @@
 const https = require("https");
 
 const DRIVE_FILE_URL =
-  "https://drive.google.com/uc?export=download&id=1fybhiGA-4ub1D_o3nZLO6zln0Ab0G4Mj";
+  "https://67f031b6af4416c620b20103--playful-melomakarona-d83681.netlify.app/census_datasets_detailed.json";
 
 function fetchJsonFromDrive(url) {
   return new Promise((resolve, reject) => {
