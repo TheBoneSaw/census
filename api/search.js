@@ -36,7 +36,9 @@ function searchDatasets(datasets, query, limit = 5) {
       title: d.title,
       identifier: d.identifier,
       summary: d.summary,
-      variables: d.variables ? Object.fromEntries(Object.entries(d.variables).slice(0, 10)) : {}
+      variables: d.variables
+        ? Object.fromEntries(Object.entries(d.variables).slice(0, 10))
+        : {}
     }));
 }
 
@@ -55,7 +57,4 @@ module.exports = async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.toString() });
   }
-};
-module.exports = async (req, res) => {
-  // your code...
 };
