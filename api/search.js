@@ -1,9 +1,15 @@
+const fs = require("fs");
+const path = require("path");
 const https = require("https");
+const faiss = require("faiss-node");
+const chunkMap = require("./chunk_map.json");
 
-const DRIVE_FILE_URL =
-  "https://67f031b6af4416c620b20103--playful-melomakarona-d83681.netlify.app/census_datasets_detailed.json";
+// === CONFIG ===
+const NETLIFY_BASE_URL = "https://67f29c41c2817a5c8a60cef7--polite-sunshine-a568af.netlify.app/chunks_by_size";
+const INDEX_PATH = path.join(__dirname, "census_index.faiss");
 
-function fetchJsonFromDrive(url) {
+// === HELPERS ===
+function fetchJson(url) {
   return new Promise((resolve, reject) => {
     https
       .get(url, (res) => {
@@ -14,7 +20,7 @@ function fetchJsonFromDrive(url) {
             const parsed = JSON.parse(data);
             resolve(parsed);
           } catch (e) {
-            reject("Failed to parse JSON from Google Drive");
+            reject(`Failed to parse JSON from ${url}`);
           }
         });
       })
@@ -22,39 +28,43 @@ function fetchJsonFromDrive(url) {
   });
 }
 
-function searchDatasets(datasets, query, limit = 5) {
-  const q = query.toLowerCase();
-  return datasets
-    .filter((d) => {
-      const text = [d.title, d.description, d.summary, ...(d.keywords || [])]
-        .join(" ")
-        .toLowerCase();
-      return text.includes(q);
-    })
-    .slice(0, limit)
-    .map((d) => ({
-      title: d.title,
-      identifier: d.identifier,
-      summary: d.summary,
-      variables: d.variables
-        ? Object.fromEntries(Object.entries(d.variables).slice(0, 10))
-        : {}
-    }));
-}
-
+// === MAIN FUNCTION ===
 module.exports = async (req, res) => {
-  const { q = "", limit = "5" } = req.query;
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed. Use POST." });
+  }
 
-  if (!q) {
-    return res.status(400).json({ error: "Missing 'q' query param" });
+  const { embedding, limit = 5 } = req.body || {};
+
+  if (!embedding || !Array.isArray(embedding)) {
+    return res.status(400).json({ error: "Missing or invalid 'embedding' in request body." });
   }
 
   try {
-    const datasets = await fetchJsonFromDrive(DRIVE_FILE_URL);
-    const results = searchDatasets(datasets, q, parseInt(limit));
+    // 1. Load FAISS index
+    const index = faiss.readIndexSync(INDEX_PATH);
+
+    // 2. Perform search
+    const queryVector = new Float32Array(embedding);
+    const result = index.search(queryVector, limit);
+    const matchIds = Array.from(result.labels[0]).filter((id) => id !== -1);
+
+    // 3. Fetch matching metadata from Netlify
+    const fetches = matchIds.map(async (id) => {
+      const file = chunkMap[id.toString()];
+      if (!file) return null;
+
+      const url = `${NETLIFY_BASE_URL}/${file}`;
+      const chunk = await fetchJson(url);
+      return chunk.find((entry) => entry.global_id === id);
+    });
+
+    const results = await Promise.all(fetches);
+
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.status(200).json(results);
+    return res.status(200).json(results.filter(Boolean));
   } catch (err) {
-    res.status(500).json({ error: err.toString() });
+    console.error("❌ Error in search handler:", err);
+    return res.status(500).json({ error: err.toString() });
   }
 };
